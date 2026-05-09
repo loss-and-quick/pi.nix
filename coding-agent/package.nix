@@ -53,6 +53,10 @@ buildNpmPackage {
     fd
   ];
 
+  postPatch = ''
+    cp ${../package-lock.json} package-lock.json
+  '';
+
   preBuild = ''
     find packages -name "package.json" -exec sed -i \
       -e 's/--watch --preserveWatchOutput//g' \
@@ -64,9 +68,18 @@ buildNpmPackage {
 
     substituteInPlace packages/coding-agent/src/modes/interactive/interactive-mode.ts \
       --replace-fail $'\t\tconst action = theme.fg("accent", `''${APP_NAME} update`);\n\t\tconst updateInstruction = theme.fg("muted", `New version ''${newVersion} is available. Run `) + action;' \
-                     $'\t\tconst action = theme.fg("accent", `https://github.com/lukasl-dev/pi-mono.nix/releases/tag/v''${newVersion}`);\n\t\tconst updateInstruction = theme.fg("muted", `New version ''${newVersion} is available. Run `) + action;' \
-      --replace-fail '"https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/CHANGELOG.md"' \
-                     '`https://github.com/earendil-works/pi/blob/v''${newVersion}/packages/coding-agent/CHANGELOG.md`'
+                     $'\t\tconst action = theme.fg("accent", `https://github.com/lukasl-dev/pi-mono.nix/releases/tag/v''${newVersion}`);\n\t\tconst updateInstruction = theme.fg("muted", `New version ''${newVersion} is available. Run `) + action;'
+
+    changelogReplacement='`https://github.com/earendil-works/pi/blob/v''${newVersion}/packages/coding-agent/CHANGELOG.md`'
+    for changelogUrl in \
+      '"https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/CHANGELOG.md"' \
+      '"https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/CHANGELOG.md"'
+    do
+      if grep -qF "$changelogUrl" packages/coding-agent/src/modes/interactive/interactive-mode.ts; then
+        substituteInPlace packages/coding-agent/src/modes/interactive/interactive-mode.ts \
+          --replace-fail "$changelogUrl" "$changelogReplacement"
+      fi
+    done
 
     cp ${../models.generated.ts} packages/ai/src/models.generated.ts
 

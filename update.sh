@@ -1,4 +1,4 @@
-#!/usr/bin/env -S nix shell nixpkgs#bash nixpkgs#git nixpkgs#jq nixpkgs#nix nixpkgs#nodejs -c bash
+#!/usr/bin/env -S nix shell nixpkgs#bash nixpkgs#git nixpkgs#jq nixpkgs#nix nixpkgs#nodejs nixpkgs#npm-lockfile-fix nixpkgs#prefetch-npm-deps -c bash
 # shellcheck shell=bash
 set -euo pipefail
 
@@ -6,6 +6,7 @@ repo_url=https://github.com/earendil-works/pi.git
 archive_base_url=https://github.com/earendil-works/pi/archive/refs/tags
 version_file=VERSION.json
 models_file=models.generated.ts
+package_lock_file=package-lock.json
 
 die() { echo "$*" >&2; exit 1; }
 out() { [[ -n ${GITHUB_OUTPUT:-} ]] && echo "$1=$2" >> "$GITHUB_OUTPUT" || true; }
@@ -22,6 +23,24 @@ write_version_json() {
     | .projects["coding-agent"].npmDepsHash = $npmDepsHash' \
     "$version_file" > "$tmp"
   mv "$tmp" "$version_file"
+}
+
+validate_package_lock() {
+  local lockfile=$1 missing
+  missing=$(jq -r '
+    .packages
+    | to_entries[]
+    | select(.key | contains("node_modules/"))
+    | select((.value.link // false) | not)
+    | select(((.value | has("resolved")) | not) or ((.value | has("integrity")) | not))
+    | .key
+  ' "$lockfile")
+
+  if [[ -n "$missing" ]]; then
+    echo "package-lock.json still has incomplete package entries:" >&2
+    echo "$missing" >&2
+    exit 1
+  fi
 }
 
 latest_tag() {
@@ -41,6 +60,14 @@ restore_and_cleanup() {
   if (( status != 0 )); then
     cp "$backup_dir/$version_file" "$version_file" 2>/dev/null || true
     cp "$backup_dir/$models_file" "$models_file" 2>/dev/null || true
+    if [[ -f "$backup_dir/$package_lock_file" ]]; then
+      cp "$backup_dir/$package_lock_file" "$package_lock_file" 2>/dev/null || true
+    else
+      rm -f "$package_lock_file"
+      if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        git reset -q -- "$package_lock_file" 2>/dev/null || true
+      fi
+    fi
   fi
   cleanup
   exit "$status"
@@ -61,6 +88,9 @@ tmpdir=$(mktemp -d)
 backup_dir=$(mktemp -d)
 cp "$version_file" "$backup_dir/$version_file"
 cp "$models_file" "$backup_dir/$models_file"
+if [[ -f "$package_lock_file" ]]; then
+  cp "$package_lock_file" "$backup_dir/$package_lock_file"
+fi
 trap restore_and_cleanup EXIT
 
 archive_url="$archive_base_url/$target_rev.tar.gz"
@@ -71,6 +101,23 @@ src_path=$(jq -r .storePath <<< "$prefetch_json")
 cp -R "$src_path"/. "$tmpdir"/
 chmod -R u+w "$tmpdir"
 [[ -f "$tmpdir/package-lock.json" ]] || die "Upstream archive does not contain package-lock.json"
+
+cp "$tmpdir/package-lock.json" "$package_lock_file"
+npm-lockfile-fix "$package_lock_file"
+validate_package_lock "$package_lock_file"
+cp "$package_lock_file" "$tmpdir/package-lock.json"
+
+package_lock_changed=false
+if [[ ! -f "$backup_dir/$package_lock_file" ]] || ! cmp -s "$package_lock_file" "$backup_dir/$package_lock_file"; then
+  package_lock_changed=true
+fi
+
+# Nix flakes ignore untracked files. Mark a newly generated lockfile as
+# intent-to-add so `nix build .#coding-agent` can see it before the final
+# workflow commit step stages it normally.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git add --intent-to-add -- "$package_lock_file"
+fi
 
 echo "Generating model definitions for $target_rev..."
 pushd "$tmpdir" >/dev/null
@@ -92,12 +139,12 @@ else
 fi
 
 if [[ "$version_changed" == "true" ]]; then
-  npm_deps_hash=$(nix run --inputs-from . nixpkgs#prefetch-npm-deps -- "$tmpdir/package-lock.json" | tail -n1)
+  npm_deps_hash=$(prefetch-npm-deps "$package_lock_file" | tail -n1)
   [[ -n "$npm_deps_hash" ]] || die "Failed to determine npmDepsHash"
   write_version_json "$target_rev" "$src_hash" "$npm_deps_hash"
 fi
 
-if [[ "$version_changed" == "true" || "$models_changed" == "true" ]]; then
+if [[ "$version_changed" == "true" || "$models_changed" == "true" || "$package_lock_changed" == "true" ]]; then
   nix build .#coding-agent --no-link >/dev/null
 fi
 
@@ -105,6 +152,8 @@ if [[ "$version_changed" == "true" ]]; then
   echo "Updated VERSION.json to $target_rev"
 elif [[ "$models_changed" == "true" ]]; then
   echo "Updated models for $target_rev"
+elif [[ "$package_lock_changed" == "true" ]]; then
+  echo "Updated package-lock.json for $target_rev"
 else
   echo "VERSION.json already points to $current_rev"
   echo "No changes to commit"
@@ -112,6 +161,8 @@ fi
 
 out version "$target_rev"
 out version_changed "$version_changed"
+out models_changed "$models_changed"
+out package_lock_changed "$package_lock_changed"
 
 trap - EXIT
 cleanup
