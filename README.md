@@ -25,10 +25,6 @@ nix.settings = {
 };
 ```
 
-```sh
-nix build github:lukasl-dev/pi.nix --accept-flake-config
-```
-
 ## Run
 
 ```sh
