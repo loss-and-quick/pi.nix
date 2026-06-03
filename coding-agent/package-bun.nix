@@ -2,8 +2,8 @@
   lib,
   stdenv,
   bun2nix,
+  bun,
   makeWrapper,
-  nodejs,
   pkg-config,
   pixman,
   cairo,
@@ -21,7 +21,6 @@
 }:
 let
   runtimeBins = lib.makeBinPath [
-    nodejs
     gitMinimal
     openssh # required for git SSH clones
     ripgrep
@@ -47,8 +46,8 @@ stdenv.mkDerivation {
 
   nativeBuildInputs = [
     bun2nix.hook
+    bun
     makeWrapper
-    nodejs
     pkg-config
   ];
 
@@ -106,7 +105,7 @@ stdenv.mkDerivation {
         substituteInPlace packages/ai/package.json \
           --replace-fail 'npm run generate-models && ' '''
 
-        node <<'NODE'
+        cat > patch-package-json.js <<'BUN'
     const fs = require('fs');
     for (const file of ['packages/ai/package.json', 'packages/coding-agent/package.json']) {
       const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -115,7 +114,9 @@ stdenv.mkDerivation {
       }
       fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
     }
-    NODE
+    BUN
+        bun patch-package-json.js
+        rm patch-package-json.js
   '';
 
   buildPhase = ''
@@ -139,7 +140,7 @@ stdenv.mkDerivation {
 
     cp -rL node_modules/. "$out/lib/node_modules/"
 
-    makeWrapper ${nodejs}/bin/node $out/bin/pi \
+    makeWrapper ${bun}/bin/bun $out/bin/pi \
       --add-flags "$out/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js" \
       --set PI_PACKAGE_DIR "$out/lib/node_modules/@earendil-works/pi-coding-agent" \
       --prefix NODE_PATH : "$out/lib/node_modules" \
