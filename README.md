@@ -60,6 +60,9 @@ nix.settings = {
     # themes = [ ./themes/catppuccin-mocha.json ];
     # promptTemplates = [ ./prompts ];
     # models = ./models.json;
+    # settings = {
+    #   model = "gpt-5";
+    # };
     # extraArgs = [ "--provider" "openai" "--model" "gpt-5" ];
     # environment.OPENAI_API_KEY = config.age.secrets.openai.path;
   };
@@ -78,6 +81,7 @@ nix.settings = {
     # rules = ''Be concise.'';
     # skills = [ ./skills/my-skill ];
     # models = ./models.json;
+    # settings.model = "gpt-5";
     # environment.OPENAI_API_KEY = config.age.secrets.openai.path;
   };
 }
@@ -126,3 +130,4 @@ Common options under `programs.pi.coding-agent` / `pi.coding-agent`:
 - `models`
 - `extraArgs`
 - `environment`
+- `settings`
