@@ -59,19 +59,10 @@ text = text.replace(
   '  fetchurl,\n  ...',
   '  fetchurl,\n  workspaceRoot ? throw "coding-agent/bun.nix requires workspaceRoot (the upstream pi source root)",\n  ...'
 );
-const replacements = new Map([
-  ['./packages/agent', '(workspaceRoot + "/packages/agent")'],
-  ['./packages/ai', '(workspaceRoot + "/packages/ai")'],
-  ['./packages/coding-agent/examples/extensions/custom-provider-anthropic', '(workspaceRoot + "/packages/coding-agent/examples/extensions/custom-provider-anthropic")'],
-  ['./packages/coding-agent/examples/extensions/custom-provider-gitlab-duo', '(workspaceRoot + "/packages/coding-agent/examples/extensions/custom-provider-gitlab-duo")'],
-  ['./packages/coding-agent/examples/extensions/sandbox', '(workspaceRoot + "/packages/coding-agent/examples/extensions/sandbox")'],
-  ['./packages/coding-agent/examples/extensions/with-deps', '(workspaceRoot + "/packages/coding-agent/examples/extensions/with-deps")'],
-  ['./packages/coding-agent', '(workspaceRoot + "/packages/coding-agent")'],
-  ['./packages/tui', '(workspaceRoot + "/packages/tui")'],
-]);
-for (const [from, to] of replacements) {
-  text = text.replaceAll(`copyPathToStore ${from}`, `copyPathToStore ${to}`);
-}
+text = text.replace(
+  /copyPathToStore (\.\/packages\/[^\s);]+)/g,
+  (_, relPath) => `copyPathToStore (workspaceRoot + "${relPath.slice(1)}")`
+);
 fs.writeFileSync(file, text);
 NODE
 }
